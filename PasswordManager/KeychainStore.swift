@@ -2,20 +2,18 @@
 //  KeychainStore.swift
 //  PasswordManager
 //
-//  Keychain-Zugriffe laufen im actor, damit Face ID nicht den MainActor blockiert (P8).
-//
 
 import Foundation
 import Security
 import LocalAuthentication
 
-struct PasswordEntry: Identifiable, Equatable, Sendable {
+struct PasswordEntry: Identifiable, Sendable {
     var id: String { title }
     let title: String
     let username: String
 }
 
-enum KeychainError: Error, Equatable {
+enum KeychainError: Error {
     case status(OSStatus)   // Die Keychain meldet einen Code, z. B. -25300
     case invalidData        // Die Bytes sind kein UTF-8-Text
     case accessControl      // Die Face-ID-Regel ließ sich nicht erzeugen
@@ -24,9 +22,7 @@ enum KeychainError: Error, Equatable {
 actor KeychainStore {
     private let service = "at.fhj.nmd.passwordmanager"
 
-    // MARK: - Grundlage
-
-    /// Klasse + Service + Account machen einen Eintrag eindeutig (P3).
+    // Klasse + Service + Account machen einen Eintrag eindeutig
     private func baseQuery(account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
@@ -40,7 +36,7 @@ actor KeychainStore {
         return value
     }
 
-    /// Zugriffsregel mit .biometryCurrentSet (P4).
+    // Zugriffsregel für Face ID mit .biometryCurrentSet
     private func faceIDAccess() throws -> SecAccessControl {
         var error: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(
@@ -55,9 +51,7 @@ actor KeychainStore {
         return access
     }
 
-    // MARK: - Speichern und Aktualisieren
-
-    /// Speichert einen geschützten Eintrag ohne Face-ID-Abfrage beim Anlegen (P3, P4, P7).
+    // Speichert einen geschützten Eintrag ohne Face-ID-Abfrage beim Anlegen
     func saveProtected(_ password: String, title: String, username: String) throws {
         var add = baseQuery(account: title)
         let access = try faceIDAccess()
@@ -73,7 +67,7 @@ actor KeychainStore {
         }
     }
 
-    /// Aktualisiert einen vorhandenen Eintrag bei errSecDuplicateItem (-25299) (P7).
+    // Vorhandenen Eintrag bei errSecDuplicateItem (-25299) aktualisieren
     private func update(_ password: String, title: String, username: String) throws {
         let query = baseQuery(account: title)
         let changes: [String: Any] = [
@@ -86,8 +80,7 @@ actor KeychainStore {
         }
     }
 
-    // MARK: - Liste laden (nur Titel und Benutzername, nie das Passwort)
-
+    // Liste laden: nur Titel und Benutzername, nie das Passwort
     func loadEntries() throws -> [PasswordEntry] {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -106,17 +99,19 @@ actor KeychainStore {
         guard let items = result as? [[String: Any]] else {
             return []
         }
-        return items.compactMap { item in
-            guard let title = item[kSecAttrAccount as String] as? String else {
-                return nil
+
+        var entries: [PasswordEntry] = []
+        for item in items {
+            if let title = item[kSecAttrAccount as String] as? String {
+                let username = item[kSecAttrLabel as String] as? String ?? ""
+                entries.append(PasswordEntry(title: title, username: username))
             }
-            let username = item[kSecAttrLabel as String] as? String ?? ""
-            return PasswordEntry(title: title, username: username)
         }
+        entries.sort { $0.title < $1.title }
+        return entries
     }
 
-    // MARK: - Geschütztes Passwort lesen (mit Face ID)
-
+    // Suchanfrage mit LAContext für die Face-ID-Abfrage durch die Keychain
     private func protectedQuery(account: String) -> [String: Any] {
         let context = LAContext()
         context.localizedReason = "Passwort anzeigen"
@@ -127,11 +122,10 @@ actor KeychainStore {
         return query
     }
 
-    /// Liest das Passwort für einen Eintrag. Die Keychain zeigt die Face-ID-Abfrage (P5, P6).
+    // Liest das Passwort für einen Eintrag. Die Keychain zeigt die Face-ID-Abfrage.
     func loadProtected(account: String) async throws -> String {
         #if targetEnvironment(simulator)
-        // Hinweis aus der Angabe: Nur für den Simulator zusätzlich evaluatePolicy aufrufen,
-        // weil der Simulator die Keychain-Regel nicht selbst durchsetzt.
+        // Nur für den Simulator, weil der Simulator die Keychain-Regel nicht selbst durchsetzt
         let simContext = LAContext()
         do {
             _ = try await simContext.evaluatePolicy(
@@ -139,10 +133,9 @@ actor KeychainStore {
                 localizedReason: "Passwort anzeigen"
             )
         } catch let error as LAError {
-            switch error.code {
-            case .userCancel, .systemCancel, .appCancel:
+            if error.code == .userCancel || error.code == .systemCancel || error.code == .appCancel {
                 throw KeychainError.status(errSecUserCanceled)
-            default:
+            } else {
                 throw KeychainError.status(errSecAuthFailed)
             }
         } catch {
@@ -159,8 +152,7 @@ actor KeychainStore {
         return try string(from: result)
     }
 
-    // MARK: - Löschen
-
+    // Eintrag aus der Keychain löschen
     func delete(account: String) throws {
         let query = baseQuery(account: account)
         let status = SecItemDelete(query as CFDictionary)
