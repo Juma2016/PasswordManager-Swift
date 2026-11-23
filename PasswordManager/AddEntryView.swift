@@ -69,6 +69,8 @@ struct AddEntryView: View {
         }
     }
 }
+
+// Mit Hilfe von AI
 #Preview {
     AddEntryView(model: VaultModel())
 }
