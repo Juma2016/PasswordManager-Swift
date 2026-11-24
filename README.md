@@ -1,4 +1,3 @@
-# PasswordManager-Swift
 # PasswordManager
 
 ## Wahl der Zugriffsregel: `.biometryCurrentSet` vs. `.userPresence`
