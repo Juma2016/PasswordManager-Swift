@@ -13,6 +13,7 @@ struct DetailView: View {
     var model: VaultModel
 
     @Environment(\.dismiss) private var dismiss
+    @State private var showRecreateAlert = false
     @State private var showRecreateSheet = false
 
     var body: some View {
@@ -55,10 +56,7 @@ struct DetailView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Button("Eintrag neu anlegen") {
-                            Task {
-                                _ = await model.delete(title: entry.title)
-                                showRecreateSheet = true
-                            }
+                            showRecreateAlert = true
                         }
                         .buttonStyle(.borderedProminent)
                         Button("Erneut versuchen") {
@@ -91,6 +89,13 @@ struct DetailView: View {
                 }
             }
 
+            if !model.errorMessage.isEmpty {
+                Section {
+                    Text(model.errorMessage)
+                        .foregroundStyle(.red)
+                }
+            }
+
             Section {
                 Button("Eintrag löschen", role: .destructive) {
                     Task {
@@ -110,6 +115,19 @@ struct DetailView: View {
         }
         .onDisappear {
             model.hidePassword()
+        }
+        .alert("Eintrag neu anlegen?", isPresented: $showRecreateAlert) {
+            Button("Abbrechen", role: .cancel) { }
+            Button("Löschen & neu anlegen", role: .destructive) {
+                Task {
+                    let ok = await model.delete(title: entry.title)
+                    if ok {
+                        showRecreateSheet = true
+                    }
+                }
+            }
+        } message: {
+            Text("Der bestehende Eintrag wird dabei gelöscht und das gespeicherte Passwort geht verloren.")
         }
         .sheet(isPresented: $showRecreateSheet, onDismiss: {
             dismiss()
